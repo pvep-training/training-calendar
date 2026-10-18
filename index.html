@@ -4641,12 +4641,17 @@ body.pvep-finance-admin .admin-finance-only { display: revert !important; }
       <select id="costDashboardYear" onchange="renderAdminCostDashboard()" style="min-width:115px;"></select>
     </div>
   </div>
-  <div class="stats" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr));margin-bottom:10px;">
-    <button type="button" class="stat-card clickable" onclick="openAdminCostDetails()" style="text-align:left;">
-      <div class="stat-icon">₫</div><div><div class="stat-number" id="costDashboardTotal" style="font-size:22px;">0 đ</div><div class="stat-label">Tổng chi phí đào tạo</div><div class="stat-click-hint">Bấm để xem chi tiết</div></div>
-    </button>
-    <div class="stat-card"><div class="stat-icon">📚</div><div><div class="stat-number" id="costDashboardCount">0</div><div class="stat-label">Khóa đã nhập chi phí</div></div></div>
-    <div class="stat-card"><div class="stat-icon">📋</div><div><div class="stat-number" id="costDashboardMissing">0</div><div class="stat-label">Khóa chưa nhập chi phí</div></div></div>
+  <button type="button" class="stat-card clickable" onclick="openAdminCostDetails()" style="width:100%;text-align:left;padding:26px 30px;gap:24px;align-items:center;background:linear-gradient(110deg,#f0faf4,#ffffff);border:1px solid #bcdcc9;">
+    <div class="stat-icon" style="width:68px;height:68px;font-size:36px;">₫</div>
+    <div style="min-width:0;flex:1;">
+      <div class="stat-label" style="font-size:15px;font-weight:700;color:#356249;margin:0 0 8px;">Tổng chi phí đào tạo</div>
+      <div class="stat-number" id="costDashboardTotal" style="font-size:clamp(30px,4vw,48px);line-height:1.2;overflow-wrap:anywhere;">0 đ</div>
+      <div class="stat-click-hint" style="font-size:12px;margin-top:10px;">Bấm để xem chi tiết các khóa đào tạo</div>
+    </div>
+  </button>
+  <div style="display:flex;gap:18px;flex-wrap:wrap;margin:12px 0 10px;color:#6c7e73;font-size:12px;">
+    <span>Đã nhập chi phí: <strong id="costDashboardCount" style="color:#385d49;">0</strong> khóa</span>
+    <span>Chưa nhập chi phí: <strong id="costDashboardMissing" style="color:#385d49;">0</strong> khóa</span>
   </div>
   <div class="hint">Tính theo năm bắt đầu khóa học; khóa chưa nhập chi phí không được cộng vào tổng.</div>
 </section>
