@@ -4084,6 +4084,10 @@ body.demo-mode #navAdmin {
     padding-right:4px;
   }
 }
+
+/* Quyền hiển thị thông tin tài chính ở giao diện Admin. RLS mới là lớp bảo vệ dữ liệu. */
+.admin-finance-only { display: none !important; }
+body.pvep-finance-admin .admin-finance-only { display: revert !important; }
 </style>
 </head>
 
@@ -4893,12 +4897,12 @@ body.demo-mode #navAdmin {
       </div>
 
 
-      <div class="form-group">
+      <div class="form-group admin-finance-only">
         <label for="totalCost">Tổng chi phí khóa học (VNĐ)</label>
         <input id="totalCost" type="text" inputmode="numeric" placeholder="Ví dụ: 35.000.000" oninput="formatCourseCostInput(this)">
         <div class="hint">Không bắt buộc. Để trống nếu chưa xác định chi phí.</div>
       </div>
-      <div class="form-group">
+      <div class="form-group admin-finance-only">
         <label for="contractNumber">Số hợp đồng (nếu có)</label>
         <input id="contractNumber" type="text" maxlength="250" placeholder="Ví dụ: 123/HĐ/PVEP-ĐT/2026">
       </div>
@@ -5255,8 +5259,8 @@ body.demo-mode #navAdmin {
             <th>Địa điểm</th>
             <th>Giảng viên</th>
             <th>Cơ sở đào tạo</th>
-            <th>Tổng chi phí (VNĐ)</th>
-            <th>Số hợp đồng</th>
+            <th class="admin-finance-only">Tổng chi phí (VNĐ)</th>
+            <th class="admin-finance-only">Số hợp đồng</th>
             <th>Tình trạng</th>
             <th>Nhân sự thực hiện</th>
             <th>Số HV</th>
@@ -7442,6 +7446,8 @@ function applyRoleToInterface() {
 }
 
 
+/* Chỉ Admin thấy thông tin tài chính, kể cả trong bảng và biểu mẫu. */
+// Quy tắc CSS đặt tại cuối style được ưu tiên hơn các khai báo trước.
 /* =====================================================
    DATABASE MAPPING
 ===================================================== */
@@ -7462,8 +7468,8 @@ function dbToCourse(row) {
     personInChargeId:
       row.person_in_charge_id || null,
 
-    totalCost: row.total_cost ?? null,
-    contractNumber: row.contract_number || "",
+    totalCost: null,
+    contractNumber: "",
     courseName:
       row.course_name || "",
 
@@ -7531,8 +7537,6 @@ function courseToDb(course) {
 
   return {
 
-    total_cost: course.totalCost ?? null,
-    contract_number: course.contractNumber || null,
     course_name:
       course.courseName,
 
@@ -7885,6 +7889,25 @@ async function loadCourses() {
     (data || [])
       .map(dbToCourse);
 
+
+  // Thông tin tài chính được đọc riêng qua RLS, chỉ dành cho Admin.
+  // Nếu lỗi, không hiển thị số liệu cũ hoặc số 0 gây hiểu nhầm.
+  if (isAdmin()) {
+    const { data: financialRows, error: financialError } =
+      await supabaseClient.from("course_financials")
+        .select("course_id, total_cost, contract_number");
+    if (financialError) {
+      console.error("Không tải được dữ liệu tài chính:", financialError);
+      showSystemMessage("⚠ Không tải được dữ liệu tài chính. Vui lòng kiểm tra quyền truy cập: " + escapeHTML(financialError.message), "error");
+      return;
+    }
+    const financialMap = new Map((financialRows || []).map(row => [String(row.course_id), row]));
+    courses.forEach(course => {
+      const finance = financialMap.get(String(course.id));
+      course.totalCost = finance?.total_cost ?? null;
+      course.contractNumber = finance?.contract_number || "";
+    });
+  }
 
   const {
     data: courseStudentRows,
@@ -9261,6 +9284,17 @@ function parseCourseCost() {
   return amount;
 }
 
+// Lưu bảng tài chính tách biệt. Không lưu các trường này vào courses.
+async function saveCourseFinancials(courseId, totalCost, contractNumber) {
+  if (!isAdmin()) return;
+  const { error } = await supabaseClient.from("course_financials").upsert({
+    course_id: courseId,
+    total_cost: totalCost,
+    contract_number: contractNumber || null
+  }, { onConflict: "course_id" });
+  if (error) throw new Error("Không lưu được chi phí/số hợp đồng: " + error.message);
+}
+
 /* =====================================================
    SAVE COURSE
 ===================================================== */
@@ -9527,6 +9561,14 @@ const selectedPersonnel =
       }
 
 
+      // Lưu tài chính trước danh sách học viên.
+      try {
+        await saveCourseFinancials(insertedCourse.id, courseData.totalCost, courseData.contractNumber);
+      } catch (financialError) {
+        await supabaseClient.from("courses").delete().eq("id", insertedCourse.id);
+        throw financialError;
+      }
+
       try {
 
         await replaceCourseStudents(
@@ -9620,6 +9662,8 @@ const selectedPersonnel =
         throw error;
       }
 
+
+      await saveCourseFinancials(editingCourseId, courseData.totalCost, courseData.contractNumber);
 
       try {
 
@@ -10961,6 +11005,7 @@ function openAdminCostDetails() {
 function closeAdminCostDetails() { document.getElementById("adminCostDetailModal").classList.remove("show"); }
 
 function renderCourses() {
+  document.body.classList.toggle("pvep-finance-admin", !!isAdmin());
   renderAdminCostDashboard();
 
   updatePersonFilter();
@@ -11269,8 +11314,8 @@ function renderCourses() {
             course.provider
           )}
         </td>
-        <td>${course.totalCost === null || course.totalCost === undefined ? "—" : escapeHTML(Number(course.totalCost).toLocaleString("vi-VN"))}</td>
-        <td>${escapeHTML(course.contractNumber || "—")}</td>
+        <td class="admin-finance-only">${course.totalCost === null || course.totalCost === undefined ? "—" : escapeHTML(Number(course.totalCost).toLocaleString("vi-VN"))}</td>
+        <td class="admin-finance-only">${escapeHTML(course.contractNumber || "—")}</td>
 
 
         <td>
@@ -11379,11 +11424,10 @@ function buildExcelData(
         "Cơ sở đào tạo":
           course.provider || "",
 
-        "Tổng chi phí khóa học (VNĐ)":
-          course.totalCost ?? "",
-
-        "Số hợp đồng":
-          course.contractNumber || "",
+        ...(isAdmin() ? {
+          "Tổng chi phí khóa học (VNĐ)": course.totalCost ?? "",
+          "Số hợp đồng": course.contractNumber || ""
+        } : {}),
 
         "Tình trạng":
           course.status || "",
@@ -12572,8 +12616,8 @@ function openCourseDetail(id) {
         )
       )}
 
-      ${detailRow("Tổng chi phí khóa học", escapeHTML(displayCourseCost(course.totalCost)))}
-      ${detailRow("Số hợp đồng", escapeHTML(course.contractNumber || "—"))}
+      ${isAdmin() ? detailRow("Tổng chi phí khóa học", escapeHTML(displayCourseCost(course.totalCost))) : ""}
+      ${isAdmin() ? detailRow("Số hợp đồng", escapeHTML(course.contractNumber || "—")) : ""}
 
       ${detailRow(
         "Năm đào tạo",
