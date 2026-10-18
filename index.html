@@ -5408,13 +5408,13 @@ body.pvep-finance-admin .admin-finance-only { display: revert !important; }
           <div class="import-card">
             <h3>1. Tải file Excel mẫu</h3>
             <div class="import-help">
-              Sử dụng đúng cấu trúc mẫu để website nhận diện khóa đào tạo và danh sách học viên.
+              Sử dụng đúng cấu trúc mẫu để website nhận diện khóa đào tạo và danh sách học viên. Hai cột Tổng chi phí và Số hợp đồng chỉ Admin được nhập.
             </div>
             <div class="import-actions">
               <a
                 class="btn-primary import-download"
-                href="Mau_nhap_khoa_dao_tao.xlsx"
-                download
+                href="#"
+                onclick="downloadExcelImportTemplate(event)"
               >
                 ↓ Tải file Excel mẫu
               </a>
@@ -5494,6 +5494,8 @@ body.pvep-finance-admin .admin-finance-only { display: revert !important; }
                     <th>Tình trạng</th>
                     <th>Nhân sự thực hiện</th>
                     <th>Số HV</th>
+                    <th>Tổng chi phí (VNĐ)</th>
+                    <th>Số hợp đồng</th>
                   </tr>
                 </thead>
                 <tbody id="importCoursePreviewBody"></tbody>
@@ -13313,6 +13315,45 @@ document.addEventListener(
    EXCEL IMPORT - VALIDATE, PREVIEW AND SAVE
 ===================================================== */
 
+
+function downloadExcelImportTemplate(event) {
+  if (event) event.preventDefault();
+  if (typeof XLSX === "undefined") {
+    alert("Chưa tải được thư viện Excel. Vui lòng tải lại trang.");
+    return;
+  }
+  const headers = [
+    "Mã tạm khóa (*)", "Tên khóa đào tạo (*)", "Ngày bắt đầu (*)", "Ngày kết thúc (*)",
+    "Ngày học thực tế", "Địa điểm", "Giảng viên", "Cơ sở đào tạo",
+    "Tình trạng (*)", "Mã nhân sự thực hiện (*)",
+    "Tổng chi phí đào tạo (VNĐ)", "Số hợp đồng"
+  ];
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet([headers]);
+  ws['!cols'] = headers.map((h, i) => ({ wch: i === 1 ? 38 : i === 4 ? 32 : i === 10 ? 28 : 22 }));
+  XLSX.utils.book_append_sheet(wb, ws, IMPORT_COURSE_SHEET);
+  const studentHeaders = ["Mã tạm khóa (*)", "Họ và tên (*)", "Chức danh", "Ban/Đơn vị"];
+  const students = XLSX.utils.aoa_to_sheet([studentHeaders]);
+  students['!cols'] = [{wch:22},{wch:30},{wch:25},{wch:28}];
+  XLSX.utils.book_append_sheet(wb, students, IMPORT_STUDENT_SHEET);
+  const guide = XLSX.utils.aoa_to_sheet([
+    ["HƯỚNG DẪN NHẬP KHÓA ĐÀO TẠO PVEP"],
+    ["Hai sheet KHOA_DAO_TAO và HOC_VIEN phải giữ nguyên tên cột."],
+    ["Mã tạm khóa: dùng cùng mã để nối khóa học với học viên, ví dụ K01."],
+    ["Ngày: nhập dạng văn bản dd/mm/yyyy, ví dụ 21/10/2026."],
+    ["Ngày học thực tế: các ngày cách nhau dấu ; hoặc để trống nếu học liên tục."],
+    ["Tình trạng: Chưa triển khai / Đang triển khai / Hoàn thành / Tạm hoãn / Hủy."],
+    ["Mã nhân sự thực hiện: dùng mã đang có trên website."],
+    ["Tổng chi phí đào tạo (VNĐ): số nguyên không âm, để trống nếu chưa có."],
+    ["Số hợp đồng: có thể để trống."],
+    ["Hai cột tài chính chỉ được nhập bởi Admin; dữ liệu lưu trong course_financials."],
+    ["Nếu tài chính lưu lỗi sau khi khóa học đã tạo, KHÔNG nhập lại toàn bộ file."]
+  ]);
+  guide['!cols'] = [{wch:105}];
+  XLSX.utils.book_append_sheet(wb, guide, "HUONG_DAN");
+  XLSX.writeFile(wb, "Mau_nhap_khoa_dao_tao_PVEP.xlsx");
+}
+
 const IMPORT_COURSE_SHEET = "KHOA_DAO_TAO";
 const IMPORT_STUDENT_SHEET = "HOC_VIEN";
 
@@ -13324,6 +13365,8 @@ const IMPORT_COURSE_REQUIRED_HEADERS = [
   "Tình trạng (*)",
   "Mã nhân sự thực hiện (*)"
 ];
+
+const IMPORT_FINANCIAL_HEADERS = ["Tổng chi phí đào tạo (VNĐ)", "Số hợp đồng"];
 
 const IMPORT_STUDENT_REQUIRED_HEADERS = [
   "Mã tạm khóa (*)",
@@ -13613,6 +13656,12 @@ function validateAndPreviewWorkbook(workbook) {
     }
     const status = importCleanText(row["Tình trạng (*)"]);
     const personnelCode = importCleanText(row["Mã nhân sự thực hiện (*)"]).toUpperCase();
+    const costRaw = importCleanText(row["Tổng chi phí đào tạo (VNĐ)"]);
+    const contractNumber = importCleanText(row["Số hợp đồng"]);
+    const normalizedCost = costRaw.replace(/[.,\s]/g, "");
+    const validCost = !costRaw || (/^\d+$/.test(normalizedCost) && Number.isSafeInteger(Number(normalizedCost)));
+    if (!validCost) errors.push(`${IMPORT_COURSE_SHEET} dòng ${excelRow}: Tổng chi phí phải là số nguyên không âm (VNĐ).`);
+    const totalCost = costRaw && validCost ? Number(normalizedCost) : null;
 
     const rowIsEmpty = !tempCode && !name && !importCleanText(row["Ngày bắt đầu (*)"]) && !importCleanText(row["Ngày kết thúc (*)"]);
     if (rowIsEmpty) return;
@@ -13686,7 +13735,9 @@ function validateAndPreviewWorkbook(workbook) {
       personnelCode,
       personnelId: matchedPerson ? Number(matchedPerson.id) : null,
       personnelName: matchedPerson ? matchedPerson.full_name : "",
-      studentCount: 0
+      studentCount: 0,
+      totalCost,
+      contractNumber
     });
   });
 
@@ -13812,10 +13863,12 @@ function renderExcelPreview(coursesToPreview, studentsToPreview, errors) {
             <td>${importEscapeHtml(course.status)}</td>
             <td>${importEscapeHtml(course.personnelName || course.personnelCode || "—")}</td>
             <td>${course.studentCount}</td>
+            <td>${course.totalCost === null ? "—" : course.totalCost.toLocaleString("vi-VN")}</td>
+            <td>${importEscapeHtml(course.contractNumber || "—")}</td>
           </tr>
         `;
       }).join("")
-    : `<tr><td colspan="11">Chưa có dữ liệu khóa đào tạo để xem trước.</td></tr>`;
+    : `<tr><td colspan="13">Chưa có dữ liệu khóa đào tạo để xem trước.</td></tr>`;
 
   studentBody.innerHTML = studentsToPreview.length
     ? studentsToPreview.slice(0, 200).map(student => `
@@ -13853,6 +13906,14 @@ async function confirmExcelImport() {
 
   if (isViewer()) {
     alert("Tài khoản chỉ xem không có quyền nhập dữ liệu.");
+    return;
+  }
+
+  const financialCourses = excelPreviewData.courses.filter(course =>
+    course.totalCost !== null || !!course.contractNumber
+  );
+  if (financialCourses.length && !isAdmin()) {
+    alert("File có thông tin tài chính. Chỉ Admin được phép nhập Tổng chi phí và Số hợp đồng. Hãy xóa hai trường này hoặc đăng nhập Admin.");
     return;
   }
 
@@ -13925,6 +13986,52 @@ async function confirmExcelImport() {
     }
 
     const imported = Array.isArray(data) ? data : [];
+    // Khóa học được tạo bởi RPC; tài chính lưu riêng, không ghi vào courses.
+    // Chỉ gắn theo thứ tự khi RPC trả đủ số khóa tương ứng với đầu vào.
+    let financialErrorMessage = "";
+    if (financialCourses.length) {
+      if (imported.length !== payload.length) {
+        financialErrorMessage = "Không xác định đủ mã khóa trả về từ import_training_batch; chưa thể lưu tài chính tự động.";
+      } else {
+        const financeRows = [];
+        for (let i = 0; i < imported.length; i++) {
+          const original = excelPreviewData.courses[i];
+          if (original.totalCost === null && !original.contractNumber) continue;
+          const result = imported[i] || {};
+          let courseId = result.course_id ?? result.id;
+          if (!courseId && result.course_code) {
+            const lookup = await supabaseClient.from("courses")
+              .select("id").eq("course_code", result.course_code).single();
+            if (lookup.error) { financialErrorMessage = lookup.error.message; break; }
+            courseId = lookup.data?.id;
+          }
+          if (!courseId) {
+            financialErrorMessage = "Không tìm thấy ID khóa học sau khi nhập Excel.";
+            break;
+          }
+          financeRows.push({
+            course_id: courseId,
+            total_cost: original.totalCost,
+            contract_number: original.contractNumber || null
+          });
+        }
+        if (!financialErrorMessage && financeRows.length) {
+          const saveFinance = await supabaseClient.from("course_financials")
+            .upsert(financeRows, { onConflict: "course_id" });
+          if (saveFinance.error) financialErrorMessage = saveFinance.error.message;
+        }
+      }
+    }
+    if (financialErrorMessage) {
+      await loadCourses();
+      setImportStatus("Đã tạo khóa học và học viên, nhưng CHƯA lưu được thông tin tài chính: " + financialErrorMessage + ". Không nhập lại toàn bộ file để tránh trùng khóa; hãy bổ sung tài chính tại mục Sửa khóa học.", "error");
+      if (resultBox) {
+        resultBox.style.display = "block";
+        resultBox.textContent = "Khóa học đã được tạo. Lỗi phần tài chính: " + financialErrorMessage;
+      }
+      if (button) { button.disabled = true; button.textContent = "Đã nhập khóa học (cần bổ sung tài chính)"; }
+      return;
+    }
     const codeList = imported
       .map(item => item && item.course_code)
       .filter(Boolean);
