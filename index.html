@@ -4088,6 +4088,17 @@ body.demo-mode #navAdmin {
 /* Quyền hiển thị thông tin tài chính ở giao diện Admin. RLS mới là lớp bảo vệ dữ liệu. */
 .admin-finance-only { display: none !important; }
 body.pvep-finance-admin .admin-finance-only { display: revert !important; }
+
+/* Cảnh báo trùng họ tên, không tự động xóa hay chặn lưu */
+.direct-student-name-wrap { min-width: 0; }
+.direct-student-name-wrap .student-name-input { width: 100%; }
+.direct-student-duplicate { background: #fff1f1 !important; border-color: #e8a1a1 !important; }
+.direct-student-duplicate .student-name-input { color: #b4232b; border-color: #df7777; font-weight: 700; }
+.direct-student-duplicate-warning { color: #b4232b; font-size: 10px; font-weight: 700; margin-top: 4px; }
+.direct-student-duplicate-summary { grid-column: 1 / -1; padding: 9px 12px; background: #edf8f1; border: 1px solid #cbe6d4; border-radius: 7px; color: #17643a; font-size: 12px; }
+.direct-student-duplicate-summary.has-duplicates { background: #fff1f1; color: #aa2323; border-color: #e8a1a1; }
+@media (max-width: 900px) { .direct-student-row .direct-student-name-wrap { grid-column: 2; grid-row: 1; } }
+
 </style>
 </head>
 
@@ -8582,71 +8593,15 @@ function closePasteStudentsModal() {
 
 
 function mergeDirectStudents(newStudents) {
-
-  const existingKeys =
-    new Set(
-      directStudents
-        .map(student =>
-          normalizeText(
-            student.fullName || ""
-          )
-        )
-        .filter(Boolean)
-    );
-
-
   let added = 0;
-  let skipped = 0;
-
-
-  newStudents.forEach(function(student) {
-
-    const normalized =
-      normalizeDirectStudent(
-        student
-      );
-
-
-    const key =
-      normalizeText(
-        normalized.fullName
-      );
-
-
-    if (!key) {
-      return;
-    }
-
-
-    if (
-      existingKeys.has(key)
-    ) {
-      skipped += 1;
-      return;
-    }
-
-
-    directStudents.push(
-      normalized
-    );
-
-    existingKeys.add(key);
-    added += 1;
-
+  (newStudents || []).forEach(function(student) {
+    const normalized = normalizeDirectStudent(student);
+    if (!normalized.fullName) return;
+    directStudents.push(normalized);
+    added++;
   });
-
-
   renderDirectStudentEditor();
-
-
-  return {
-    added:
-      added,
-
-    skipped:
-      skipped
-  };
-
+  return { added, skipped: 0 };
 }
 
 
@@ -8956,6 +8911,38 @@ function normalizeDirectStudent(student) {
 }
 
 
+function getDirectStudentDuplicateNames() {
+  const counts = new Map();
+  directStudents.forEach(student => {
+    const key = normalizeText(student.fullName || "");
+    if (key) counts.set(key, (counts.get(key) || 0) + 1);
+  });
+  return new Set([...counts].filter(([, count]) => count > 1).map(([key]) => key));
+}
+
+function refreshDirectStudentDuplicateWarnings() {
+  const editor = document.getElementById("directStudentEditor");
+  if (!editor) return;
+  const duplicates = getDirectStudentDuplicateNames();
+  editor.querySelectorAll(".direct-student-row").forEach((row, index) => {
+    const student = directStudents[index];
+    const key = normalizeText(student && student.fullName || "");
+    const isDuplicate = Boolean(key && duplicates.has(key));
+    row.classList.toggle("direct-student-duplicate", isDuplicate);
+    const warning = row.querySelector(".direct-student-duplicate-warning");
+    if (warning) {
+      warning.style.display = isDuplicate ? "block" : "none";
+      warning.title = "Trùng họ tên trong khóa. Kiểm tra chức danh và Ban/Đơn vị; Admin quyết định giữ hoặc xóa.";
+    }
+  });
+  const summary = document.getElementById("directStudentDuplicateSummary");
+  if (summary) {
+    const count = directStudents.filter(student => duplicates.has(normalizeText(student.fullName || ""))).length;
+    summary.textContent = count ? `⚠ ${count} dòng có họ tên trùng. Tất cả vẫn được giữ; Admin kiểm tra và quyết định sửa hoặc xóa.` : `Tổng số: ${directStudents.filter(student => String(student.fullName || "").trim()).length} học viên. Không có tên trùng.`;
+    summary.classList.toggle("has-duplicates", count > 0);
+  }
+}
+
 function renderDirectStudentEditor() {
 
   const editor =
@@ -8983,6 +8970,7 @@ function renderDirectStudentEditor() {
 
   editor.innerHTML = `
 
+    <div id="directStudentDuplicateSummary" class="direct-student-duplicate-summary"></div>
     <div class="direct-student-header">
       <div>STT</div>
       <div>Họ và tên</div>
@@ -9000,6 +8988,7 @@ function renderDirectStudentEditor() {
             ${index + 1}
           </div>
 
+          <div class="direct-student-name-wrap">
           <input
             type="text"
             class="student-name-input"
@@ -9007,6 +8996,8 @@ function renderDirectStudentEditor() {
             placeholder="Họ và tên"
             oninput="updateDirectStudent(${index}, 'fullName', this.value)"
           >
+          <span class="direct-student-duplicate-warning" style="display:none">⚠ Trùng tên – kiểm tra đơn vị</span>
+          </div>
 
           <input
             type="text"
@@ -9042,6 +9033,7 @@ function renderDirectStudentEditor() {
 
 
   syncLegacyStudentsField();
+  refreshDirectStudentDuplicateWarnings();
 
 }
 
@@ -9093,6 +9085,7 @@ function updateDirectStudent(
   directStudents[index][field] =
     value;
 
+  refreshDirectStudentDuplicateWarnings();
   syncLegacyStudentsField();
 
 }
@@ -9162,36 +9155,7 @@ function validateDirectStudentRows() {
   }
 
 
-  const seen =
-    new Set();
-
-
-  for (const student of students) {
-
-    const key =
-      normalizeText(
-        student.fullName
-      );
-
-
-    if (seen.has(key)) {
-
-      alert(
-        'Học viên "' +
-        student.fullName +
-        '" đang bị nhập trùng trong cùng một khóa.'
-      );
-
-      return null;
-
-    }
-
-
-    seen.add(key);
-
-  }
-
-
+  // Tên trùng chỉ được cảnh báo bằng màu đỏ, không cản lưu dữ liệu.
   return students;
 
 }
@@ -13760,7 +13724,7 @@ function validateAndPreviewWorkbook(workbook) {
     const duplicateKey = `${tempCode}|||${fullName.toLocaleLowerCase("vi-VN")}`;
     if (tempCode && fullName) {
       if (studentNameByCourse.has(duplicateKey)) {
-        errors.push(`${IMPORT_STUDENT_SHEET} dòng ${excelRow}: học viên “${fullName}” bị lặp trong khóa ${tempCode}.`);
+        // Tên trùng được giữ lại để Admin tự rà soát sau khi nhập.
       } else {
         studentNameByCourse.set(duplicateKey, true);
       }
